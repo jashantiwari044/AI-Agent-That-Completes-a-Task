@@ -91,16 +91,28 @@ class LLMClient:
                     "GROQ_API_KEY is not set! Set GROQ_API_KEY in your .env file or use --provider ollama"
                 )
 
-        try:
-            response = self._groq_client.chat.completions.create(
-                model=self.groq_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return response.choices[0].message.content or ""
-        except Exception as e:
-            raise RuntimeError(f"Groq API error: {str(e)}")
+        retries = 3
+        backoff = 2.0
+        # Safe token cap to respect free-tier OTPM limits (e.g. 1000 tokens on Groq)
+        safe_max_tokens = min(max_tokens, 950)
+
+        for attempt in range(retries):
+            try:
+                response = self._groq_client.chat.completions.create(
+                    model=self.groq_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=safe_max_tokens,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("rate_limit_exceeded" in err_msg or "429" in err_msg) and attempt < retries - 1:
+                    import time
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise RuntimeError(f"Groq API error: {str(e)}")
 
     def _generate_ollama(
         self,

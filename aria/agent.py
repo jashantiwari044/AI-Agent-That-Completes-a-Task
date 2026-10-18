@@ -109,7 +109,12 @@ class ReActAgent:
         action = action_match.group(1).strip().lower() if action_match else None
 
         action_input = {}
-        input_match = re.search(r"Action Input:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
+        # Match Action Input non-greedily up to next Thought, Action, Final Answer, Observation, or end of string
+        input_match = re.search(
+            r"Action Input:\s*(.*?)(?=(?:\n\s*(?:Thought|Action|Final Answer|Observation):)|$)",
+            raw,
+            re.DOTALL | re.IGNORECASE,
+        )
         if input_match:
             input_str = input_match.group(1).strip()
             
@@ -123,8 +128,7 @@ class ReActAgent:
             try:
                 action_input = json.loads(input_str)
             except Exception:
-                # If single string or unquoted key fallback
-                # Try finding outermost { ... }
+                # Try finding outermost JSON object { ... }
                 bracket_match = re.search(r"(\{.*\})", input_str, re.DOTALL)
                 if bracket_match:
                     try:
@@ -295,6 +299,19 @@ class ReActAgent:
             try:
                 final_synth = self.llm.generate(self.messages, temperature=0.3)
                 final_result = final_synth
+                
+                # Check if final synthesis emitted an Action (e.g. write_file)
+                parsed_final = self._parse_llm_output(final_synth)
+                if parsed_final.action and parsed_final.action in self.tools:
+                    self.tools[parsed_final.action].execute(**parsed_final.action_input)
+                    if parsed_final.action_input.get("content"):
+                        final_result = parsed_final.action_input["content"]
+                elif "write_file" in self.tools:
+                    # Auto-save report if task requested writing to a specific file
+                    file_match = re.search(r"(?:to|in|file)\s+([a-zA-Z0-9_\-\.]+\.(?:md|txt|json))", task, re.IGNORECASE)
+                    if file_match:
+                        target_file = file_match.group(1).strip()
+                        self.tools["write_file"].execute(file_path=target_file, content=final_synth)
             except Exception:
                 final_result = "Reached max steps limit. Intermediate notes and trace saved."
 

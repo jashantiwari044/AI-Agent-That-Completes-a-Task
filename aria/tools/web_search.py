@@ -58,6 +58,8 @@ class WebSearchTool(BaseTool):
             for i, r in enumerate(results, start=1):
                 title = r.get("title", "Untitled")
                 snippet = r.get("body", "No description available.")
+                if len(snippet) > 350:
+                    snippet = snippet[:350] + "..."
                 url = r.get("href", "")
                 formatted_output.append(f"[{i}] {title}\n    Snippet: {snippet}\n    URL: {url}")
 

@@ -36,6 +36,19 @@ class FileReaderTool(BaseTool):
         except (ValueError, TypeError):
             max_chars = 8000
 
+        # If path is a web URL, fetch content via HTTP
+        if file_path_str.startswith("http://") or file_path_str.startswith("https://"):
+            try:
+                import httpx, re
+                r = httpx.get(file_path_str, timeout=10.0, follow_redirects=True)
+                clean_text = re.sub(r"<[^>]+>", " ", r.text)
+                clean_text = re.sub(r"\s+", " ", clean_text).strip()
+                if len(clean_text) > max_chars:
+                    clean_text = clean_text[:max_chars] + f"\n\n[... Truncated: read {max_chars} chars ...]"
+                return f"=== Web Page: {file_path_str} ===\n{clean_text}"
+            except Exception as e:
+                return f"Error fetching URL '{file_path_str}': {str(e)}"
+
         path = Path(file_path_str)
         if not path.is_absolute():
             # Check BASE_DIR first
